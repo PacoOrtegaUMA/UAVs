@@ -3,186 +3,240 @@ import os
 import shutil
 import time
 import csv
+import time
+from datetime import datetime
+
+# -------------------------------------------------------
+# BASE DIR
+# -------------------------------------------------------
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 
 # -------------------------------------------------------
 # CONFIG
 # -------------------------------------------------------
 
+# GPU
+USE_GPU = False        # True = GPU | False = CPU
 GPU_ID = "0"
-os.environ["CUDA_VISIBLE_DEVICES"] = GPU_ID
-print("Using GPU:", GPU_ID)
 
-DATA_YAML = "waid.yaml"
+# Dataset
+DATA_YAML = os.path.join(BASE_DIR, "waid.yaml")
 
-# list of base models (comment out the ones you do not want)
+# Fraction of training data (0-1)
+#DATA_FRACTION = 1.0   # Todas
+#DATA_FRACTION = 0.0994 # ≈1000
+DATA_FRACTION = 0.00994 # ≈100
+
+# Models
 MODELS = [
-    "./yolo11n.pt",
-    #"./yolo11s.pt",
-    #"./yolo11m.pt",
-    #"./yolo11l.pt",
-    #"./yolo11x.pt"
+    os.path.join(PROJECT_ROOT, "Models", "yolo11n.pt"),
+    os.path.join(PROJECT_ROOT, "Models", "yolo11s.pt"),
+    os.path.join(PROJECT_ROOT, "Models", "yolo11m.pt"),
+    os.path.join(PROJECT_ROOT, "Models", "yolo11l.pt"),
+    os.path.join(PROJECT_ROOT, "Models", "yolo11x.pt")
 ]
+# Levels
+LEVELS = [1,2,3,4]
 
-# touch levels to train
-# by default [1, 2, 3, 4]; for example you can set [1] or [2, 4]
-LEVELS = [1]
+# Output
+OUT_DIR = os.path.join(PROJECT_ROOT, "TrainModels")
+os.makedirs(OUT_DIR, exist_ok=True)
 
-# folder where final models are stored
-OUT_DIR = "./Modelos"
-if not os.path.exists(OUT_DIR):
-    os.makedirs(OUT_DIR)
-
-# csv where training times per epoch are stored
-CSV_PATH = "training_times.csv"
+# CSV
+CSV_PATH = os.path.join(BASE_DIR, "training_times.csv")
 CSV_HEADER = ["model", "train1", "train2", "train3", "train4"]
 
+LOG_CSV = os.path.join(BASE_DIR, "training_log.csv")
+LOG_HEADER = ["datetime","model","levels","fraction","epochs"]
 
 # -------------------------------------------------------
-# CSV HELPER
+# DEVICE
 # -------------------------------------------------------
 
-def save_csv(rows_dict, csv_path, header):
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=header)
+if USE_GPU:
+    os.environ["CUDA_VISIBLE_DEVICES"] = GPU_ID
+    DEVICE = 0
+    print("Using GPU:", GPU_ID)
+else:
+    DEVICE = "cpu"
+    print("Using CPU")
+
+
+# -------------------------------------------------------
+# CSV
+# -------------------------------------------------------
+
+def save_csv(rows):
+
+    with open(CSV_PATH, "w", newline="") as f:
+
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
         writer.writeheader()
-        for model_name in sorted(rows_dict.keys()):
-            writer.writerow(rows_dict[model_name])
 
+        for model in sorted(rows.keys()):
+            writer.writerow(rows[model])
+
+
+def log_run(model, levels, fraction, epochs):
+
+    file_exists = os.path.exists(LOG_CSV)
+
+    with open(LOG_CSV, "a", newline="") as f:
+
+        writer = csv.writer(f)
+
+        if not file_exists:
+            writer.writerow(LOG_HEADER)
+
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            model,
+            str(levels),
+            fraction,
+            epochs,
+        ])
 
 # -------------------------------------------------------
-# MAIN LOGIC
+# MAIN
 # -------------------------------------------------------
 
 def main():
 
-    # load existing csv if present
-    rows_dict = {}
+    rows = {}
 
+
+    # Load CSV if exists
     if os.path.exists(CSV_PATH):
+
         with open(CSV_PATH, "r") as f:
+
             reader = csv.DictReader(f)
+
             for row in reader:
+
                 for col in CSV_HEADER:
                     if col not in row:
                         row[col] = ""
-                model_name = row["model"]
-                rows_dict[model_name] = row
 
-    # loop over base models
+                rows[row["model"]] = row
+
+
+    # Train loop
     for MODEL_PATH in MODELS:
 
-        base_name = os.path.basename(MODEL_PATH)  # "yolo11s.pt"
-        tag = base_name.replace(".pt", "").replace("yolo", "")  # "11s"
+        base_name = os.path.basename(MODEL_PATH)
+        tag = base_name.replace(".pt", "").replace("yolo", "")
 
+        now = datetime.now()
+        
         print("\n====================================")
-        print("Base model:", MODEL_PATH)
-        print("Tag:", tag)
-        print("Levels to train:", LEVELS)
+        print("Model:", base_name)
+        print("Levels:", LEVELS)
+        print("Fraction:", DATA_FRACTION)
+        print("Hora actual:", now.strftime("%Y-%m-%d %H:%M:%S"))
         print("====================================")
 
-        # row in csv for this base model
-        if base_name not in rows_dict:
-            row = {
+
+        # CSV row
+        if base_name not in rows:
+
+            rows[base_name] = {
                 "model": base_name,
                 "train1": "",
                 "train2": "",
                 "train3": "",
                 "train4": ""
             }
-            rows_dict[base_name] = row
-        else:
-            row = rows_dict[base_name]
 
-        # train for each selected level
-        for TOUCH_LEVEL in LEVELS:
 
-            print("\n----------")
-            print("Touch level:", TOUCH_LEVEL)
-            print("----------")
+        row = rows[base_name]
 
-            # output model name, e.g. "Model_11s_3.pt"
-            out_model_name = "Model_%s_%d.pt" % (tag, TOUCH_LEVEL)
-            out_model_path = os.path.join(OUT_DIR, out_model_name)
 
-            print("Output model name:", out_model_name)
+        for level in LEVELS:
 
-            # run folder name for this experiment
-            run_name = "touch_%s_%d" % (tag, TOUCH_LEVEL)
-            print("Run name:", run_name)
+            print("\nTraining level:", level)
 
-            # load base model (always from original coco checkpoint)
+
+            out_name = "Model_%s_%d.pt" % (tag, level)
+            out_path = os.path.join(OUT_DIR, out_name)
+
+            run_name = "touch_%s_%d" % (tag, level)
+
+
             model = YOLO(MODEL_PATH)
 
-            # choose hyperparameters for each level
-            if TOUCH_LEVEL == 1:
-                print("Level 1: touch a bit (freeze most of backbone).")
-                freeze_layers = 20
+
+            # Hyperparams
+            if level == 1:
+                freeze = 20
                 epochs = 10
                 lr0 = 0.0005
-            elif TOUCH_LEVEL == 2:
-                print("Level 2: touch medium (unfreeze more backbone).")
-                freeze_layers = 10
+
+            elif level == 2:
+                freeze = 10
                 epochs = 30
                 lr0 = 0.001
-            elif TOUCH_LEVEL == 3:
-                print("Level 3: touch a lot (train almost all layers).")
-                freeze_layers = 5
+
+            elif level == 3:
+                freeze = 5
                 epochs = 40
                 lr0 = 0.001
-            elif TOUCH_LEVEL == 4:
-                print("Level 4: touch everything (train all layers).")
-                freeze_layers = 0
+
+            elif level == 4:
+                freeze = 0
                 epochs = 50
                 lr0 = 0.001
+
             else:
-                raise ValueError("Invalid TOUCH_LEVEL (must be 1,2,3,4)")
+                raise ValueError("Invalid level")
 
-            # ------------------------------
-            # TRAINING (timing)
-            # ------------------------------
-            start_time = time.time()
 
-            model.train(
+            # Train
+            log_run(base_name, LEVELS,DATA_FRACTION,epochs)
+            start = time.time()
+
+            results = model.train(
                 data=DATA_YAML,
                 epochs=epochs,
                 imgsz=640,
                 batch=16,
-                device=0,
+                device=DEVICE,
                 lr0=lr0,
-                freeze=freeze_layers,
-                project="runs/detect",
+                freeze=freeze,
+                fraction=DATA_FRACTION, 
+                seed=42,
+                project=os.path.join(PROJECT_ROOT, "runs"), 
                 name=run_name,
                 exist_ok=True
+
             )
 
-            total_time = time.time() - start_time
-            avg_time_per_epoch = total_time / float(epochs)
 
-            print("Total training time: %.3f s" % total_time)
-            print("Average time per epoch: %.3f s" % avg_time_per_epoch)
+            total = time.time() - start
+            avg = total / epochs
 
-            # copy best.pt to ./Modelos with custom name
-            best_path = os.path.join("runs", "detect", run_name, "weights", "best.pt")
+            print("Average epoch time:", round(avg, 3), "s")
 
-            if os.path.exists(best_path):
-                try:
-                    shutil.copy(best_path, out_model_path)
-                    print("Saved custom model as:", out_model_path)
-                except Exception as e:
-                    print("Could not copy trained model:", e)
+
+            # Copy best model
+            best = os.path.join(results.save_dir, "weights", "best.pt")
+            if os.path.exists(best):
+                shutil.copy(best, out_path)
+                print("Saved:", out_path)
             else:
-                print("Warning: best.pt not found at:", best_path)
-
-            # update csv row
-            col_name = "train%d" % TOUCH_LEVEL
-            row[col_name] = "%.6f" % float(avg_time_per_epoch)
-
-            # save csv after each level
-            save_csv(rows_dict, CSV_PATH, CSV_HEADER)
+                print("Warning: best.pt not found at", best)
 
 
-# -------------------------------------------------------
-# ENTRY POINT
+            # Update CSV
+            row["train%d" % level] = "%.6f" % avg
+
+
+            save_csv(rows)
+            time.sleep(60) 
+
+
 # -------------------------------------------------------
 
 if __name__ == "__main__":
