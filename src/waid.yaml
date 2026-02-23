@@ -1,9 +1,11 @@
 # waid.yaml
-path: /home/fozamorano/Yolo/WAID/WAID
+path: /home/paco/Proyectos/UAVs/WAID
 
 train: images/train
-val: images/valid
+#val: images/valid
+val: "images/minivalid"
 test: images/test
+
 
 nc: 6
 
