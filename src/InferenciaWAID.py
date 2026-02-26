@@ -11,17 +11,24 @@ import math
 # Parámetros
 IMAGES_DIR = "../WAID/images/test/"
 IMG_EXT = ".jpg"
-MODELOS = ["11s_1", "11n_1", "11m_1", "11l_1", "11x_1",
-           "11s_2", "11n_2", "11m_2", "11l_2", "11x_2",
-           "11s_3", "11n_3", "11m_3", "11l_3", "11x_3",
-           "11s_4", "11n_4", "11m_4", "11l_4", "11x_4"]
+MODELOS = ["11n_1", "11s_1", "11m_1", "11l_1", "11x_1",
+           "11n_2", "11s_2", "11m_2", "11l_2", "11x_2",
+           "11n_3", "11s_3", "11m_3", "11l_3", "11x_3",
+           "11n_4", "11s_4", "11m_4", "11l_4", "11x_4"]
+#MODELOS = ["11s_1"]           
 MODELS_DIR = "../TrainModels"
+LOGS_DIR = "../logs"
 MAX_IMGS = 100              # número máximo de imágenes (None = todas)
 ALEATORIO = False           # True -> muestra aleatoria; False -> primeras N ordenadas
 GUARDAR_DETALLE = True      # tiempos por imagen
 GUARDAR_RESUMEN = True      # resumen por modelo
 PAUSA_ENTRE_MODELOS = 60    # segundos
 
+# --- LÓGICA DE CARPETA LOGS ---
+if not os.path.exists(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
+    print(f"Carpeta '{LOGS_DIR}' creada.")
+# ------------------------------
 
 def cargar_imagenes(images_dir=IMAGES_DIR, img_ext=IMG_EXT,
                     max_imgs=None, aleatorio=False):
@@ -75,7 +82,7 @@ def main():
 
     # CSV detalle por imagen
     if GUARDAR_DETALLE:
-        csv_detalle = "tiempos_inferencia_detalle.csv"
+        csv_detalle = os.path.join(LOGS_DIR, "Predic_t_detalle.csv")
         escribir_cabecera_det = not os.path.exists(csv_detalle)
         f_det = open(csv_detalle, "a", newline="", encoding="utf-8")
         w_det = csv.writer(f_det)
@@ -85,7 +92,7 @@ def main():
 
     # CSV resumen por modelo
     if GUARDAR_RESUMEN:
-        csv_resumen = "tiempos_inferencia_resumen.csv"
+        csv_resumen = os.path.join(LOGS_DIR, "Predic_t_resumen.csv")
         escribir_cabecera_res = not os.path.exists(csv_resumen)
         f_res = open(csv_resumen, "a", newline="", encoding="utf-8")
         w_res = csv.writer(f_res)
